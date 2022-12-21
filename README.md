@@ -10,6 +10,21 @@ The repository is organised into multiple RMarkdown scripts and stata do files:
 * *meta_analysis* generates the forest plot and fixed effect meta-analysis for the efficacy endpoints and tolerability (discontinuation due to adverse effects)
 
 
+
+# Required software
+
+The primary analyses are done using Stata version 17.0 and R version 4.2.2.
+For the RMarkdown scripts the following packages are needed:
+
+* *tidyverse* version 1.3.2
+* *readxl* version 1.4.1
+* *lubridate* version 1.9.0
+* *brms* version 2.18.0
+* *Rcpp* version 1.0.9
+* *meta* version 6.0.0
+
+
+
 For access to the full dataset, a request to the MORU data access committee is required.
 
 If you see any bugs please email me a jwatowatson at gmail dot com

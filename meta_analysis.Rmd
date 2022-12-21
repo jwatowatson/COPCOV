@@ -10,24 +10,27 @@ knitr::opts_chunk$set(cache = T, cache.comments = FALSE,
                       echo = F, include = TRUE, 
                       fig.width = 8, fig.height = 8,
                       fig.pos = 'H',dev = 'png', dpi = 300)
+library(meta)
 ```
 
-
-
 ```{r}
-library(meta)
-my_sheets = readxl::excel_sheets('../Data/COPCOV_Meta_Analysis_v2.xlsx')
+sessionInfo()
+```
 
+load data
+```{r}
+my_sheets = readxl::excel_sheets('Data/COPCOV_Meta_Analysis_v2.xlsx')
 ```
 
 
 
 ```{r meta_plot_efficacy, fig.height=5, fig.width=9}
 for(ss in c('Primary_endpoint','Laboratory_confirmed')){
-  meta_vals = readxl::read_excel('../Data/COPCOV_Meta_Analysis_v2.xlsx',
+  meta_vals = readxl::read_excel('Data/COPCOV_Meta_Analysis_v2.xlsx',
                                  sheet = ss,na = 'NA')
   
-  if(ss %in% my_sheets[c(1,3)]) meta_vals = meta_vals[meta_vals$Study !='Grau-Pujol 2021',]
+  # no incident events in Grau-Pujol so remove
+  meta_vals = meta_vals[meta_vals$Study !='Grau-Pujol 2021',]
   
   meta_vals = meta_vals[!is.na(meta_vals$RR), ]
   meta_vals$log_RR = log(meta_vals$RR)
@@ -42,10 +45,12 @@ for(ss in c('Primary_endpoint','Laboratory_confirmed')){
   meta::forest.meta(outs, 
                     rightcols = c("effect", "ci","w.fixed"),
                     leftcols='studlab',
+                    random = F,common=T,
+                    digits.pval = 3,
                     comb.random=F, fontsize=10,
-                    print.I2=T, print.tau=F, test.overall=F,
+                    print.I2=T, print.tau=F, test.overall=T,
                     print.tau2=F,
-                    plotwidth = '12cm',
+                    plotwidth = '13cm',
                     xlab = ' Favours HCQ/CQ        Favours control')
   
 }
@@ -53,7 +58,7 @@ for(ss in c('Primary_endpoint','Laboratory_confirmed')){
 
 
 ```{r meta_discontinuation, fig.height=5, fig.width=9}
-meta_vals = readxl::read_excel('../Data/COPCOV_Meta_Analysis_v2.xlsx',
+meta_vals = readxl::read_excel('Data/COPCOV_Meta_Analysis_v2.xlsx',
                                sheet = 'Discontinuation',na = 'NA')
 meta_vals = meta_vals[!is.na(meta_vals$event.e), ]
 
@@ -68,6 +73,7 @@ forest.meta(outs,
             rightcols = c("effect", "ci","w.fixed"),
             # leftcols='studlab',
             comb.random=F, fontsize=10,
+            random = F, common = T,
             lab.e = '(Hydroxy)chloroquine',lab.c = 'Placebo',
             print.I2=T, print.tau=F, test.overall=F,
             plotwidth = '8cm',
@@ -82,7 +88,7 @@ forest.meta(outs,
 
 ```{r funnel_plot, fig.height=8, fig.width=8}
 for(ss in 'Primary_endpoint'){
-  meta_vals = readxl::read_excel('../Data/COPCOV_Meta_Analysis_v2.xlsx',
+  meta_vals = readxl::read_excel('Data/COPCOV_Meta_Analysis_v2.xlsx',
                                  sheet = ss,na = 'NA')
   
   if(ss %in% my_sheets[c(1,3)]) meta_vals = meta_vals[meta_vals$Study !='Grau-Pujol 2021',]

@@ -1,0 +1,27 @@
+---
+title: "Primary endpoint analysis"
+output: html_document
+date: "2022-12-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(readr)
+```
+
+## 
+
+
+
+```{r load_data}
+sero_outcomes = read_csv('Outputs/serology_outcomes.csv')
+inclusion_data = readxl::read_excel(path = 'Data/Time_events.xlsx')
+sero_outcomes = merge(inclusion_data, sero_outcomes[,c('subjectno','outcome','type_data')],
+      by = 'subjectno', all.x=T)
+
+table(sero_outcomes$pcr_event==1 | !is.na(sero_outcomes$outcome),
+      sero_outcomes$treatment)
+
+```
+

@@ -41,7 +41,8 @@ days_lost = merge(days_lost,
                   inclusion_data[,c('subjectno','study_days')],
                   by.x = 'label', by.y='subjectno', all=T)
 
-table(One_or_more_days_lost=days_lost$days_lost>0, Arm=days_lost$treatment)
+xx=table(`Al least one work day lost`=days_lost$days_lost>0, Arm=days_lost$treatment)
+print(xx)
 ```
 
 standard mean difference
@@ -65,7 +66,7 @@ summary(mod)
 
 zero-inflated Poisson using brms
 
-```{r}
+```{r fit_model}
 fit_zinb1 <- brm(bf(days_lost ~ treatment + offset(log(study_days)),
                     zi ~ treatment),
                  data = days_lost, family = zero_inflated_poisson())
