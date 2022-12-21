@@ -1,0 +1,50 @@
+---
+title: "Severity score analysis"
+author: "James Watson"
+date: "2022-12-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = T, cache.comments = FALSE,
+                      echo = F, include = TRUE, 
+                      fig.width = 8, fig.height = 8,
+                      fig.pos = 'H',dev = 'png', dpi = 300)
+
+library(readr)
+library(readxl)
+```
+
+
+
+```{r}
+outcomes = read_csv('Outputs/outcomes_derived.csv')
+dat_sev=read_excel('Data/severity_score_data.xlsx')
+dat_sev$max_daily_score[is.na(dat_sev$max_daily_score)]=1
+dat_sev = dat_sev[!is.na(dat_sev$max_daily_score), ]
+# ids_missing = outcomes$subjectno[!outcomes$subjectno%in%dat_sev$label &
+#                                    outcomes$Primary_endpoint]
+dat_sev = dat_sev[dat_sev$label %in% outcomes$subjectno[outcomes$Primary_endpoint],]
+scores_individ=aggregate(max_daily_score ~ label+treatment, 
+                         data = dat_sev, sum)
+trt = scores_individ$treatment=='Chloroquine/Hydroxychloroquine'
+table(trt)
+
+aggregate(max_daily_score ~ treatment, 
+          data = scores_individ,quantile)
+wilcox.test(scores_individ$max_daily_score[trt],
+            scores_individ$max_daily_score[!trt])
+```
+
+
+
+```{r severity_ecdf}
+par(las=1)
+plot(ecdf(x = log10(scores_individ$max_daily_score[trt])),main='',
+     xlab='log 10 severity score', ylab = 'cumulative distribution function',
+     verticals = TRUE, do.points = FALSE)
+lines(ecdf(x = log10(scores_individ$max_daily_score[!trt])),
+      verticals = TRUE, do.points = FALSE,
+      col='red')
+```
+

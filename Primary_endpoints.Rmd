@@ -8,6 +8,7 @@ date: "2022-12-21"
 knitr::opts_chunk$set(echo = TRUE)
 
 library(readr)
+library(epitools)
 ```
 
 ## 
@@ -16,12 +17,48 @@ library(readr)
 
 ```{r load_data}
 sero_outcomes = read_csv('Outputs/serology_outcomes.csv')
+sero_outcomes$outcome_serology = as.numeric(!is.na(sero_outcomes$outcome))
 inclusion_data = readxl::read_excel(path = 'Data/Time_events.xlsx')
-sero_outcomes = merge(inclusion_data, sero_outcomes[,c('subjectno','outcome','type_data')],
-      by = 'subjectno', all.x=T)
+outcome_dat = merge(inclusion_data[, c('subjectno','treatment','pcr_event')],
+                    sero_outcomes[,c('subjectno','outcome_serology',
+                                     'serum_available','dbs_available',
+                                     'type_data')],
+                    by = 'subjectno', all.x=T)
+symptomatic = read_delim('Data/Symptomatic.csv',delim = ';')
+outcome_dat = merge(outcome_dat, symptomatic, by='subjectno')
+```
 
-table(sero_outcomes$pcr_event==1 | !is.na(sero_outcomes$outcome),
-      sero_outcomes$treatment)
 
+
+# make endpoints
+
+```{r}
+outcome_dat$Primary_endpoint = (outcome_dat$outcome_serology==1 | outcome_dat$pcr_event==1) & outcome_dat$symptomatic=='Symptomatic'
+table(outcome_dat$Primary_endpoint)
+
+outcome_dat$Asymptomatic_SARSCoV2 = (outcome_dat$outcome_serology==1 | outcome_dat$pcr_event==1) & outcome_dat$symptomatic=='Asymptomatic'
+table(outcome_dat$Asymptomatic_SARSCoV2)
+
+outcome_dat$Serology_COVID19 = outcome_dat$outcome_serology==1 & 
+  outcome_dat$symptomatic=='Symptomatic'
+table(outcome_dat$Serology_COVID19)
+
+outcome_dat$Serum_COVID19 = outcome_dat$outcome_serology==1 &
+  outcome_dat$serum_available==1 &
+  outcome_dat$symptomatic=='Symptomatic'
+table(outcome_dat$Serum_COVID19)
+
+outcome_dat$DBS_COVID19 = outcome_dat$outcome_serology==1 &
+  outcome_dat$dbs_available==1 & outcome_dat$serum_available==0 &
+  outcome_dat$symptomatic=='Symptomatic'
+table(outcome_dat$DBS_COVID19)
+
+write_csv(x = outcome_dat,file = 'Outputs/outcomes_derived.csv')
+```
+
+
+
+```{r}
+riskratio(table(outcome_dat$Primary_endpoint, outcome_dat$treatment),rev='rows')
 ```
 
