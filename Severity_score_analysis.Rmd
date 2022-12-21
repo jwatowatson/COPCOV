@@ -13,6 +13,7 @@ knitr::opts_chunk$set(cache = T, cache.comments = FALSE,
 
 library(readr)
 library(readxl)
+library(lubridate)
 ```
 
 
@@ -25,8 +26,14 @@ dat_sev = dat_sev[!is.na(dat_sev$max_daily_score), ]
 # ids_missing = outcomes$subjectno[!outcomes$subjectno%in%dat_sev$label &
 #                                    outcomes$Primary_endpoint]
 dat_sev = dat_sev[dat_sev$label %in% outcomes$subjectno[outcomes$Primary_endpoint],]
+dat_sev$date = as.POSIXct(dat_sev$ed_date, format='%d/%b/%Y')
+
+## compute scores without imputation
 scores_individ=aggregate(max_daily_score ~ label+treatment, 
                          data = dat_sev, sum)
+n_days = aggregate(max_daily_score ~ label+treatment, 
+                   data = dat_sev, function(x) c(max(x), sum(x>=1)))
+
 trt = scores_individ$treatment=='Chloroquine/Hydroxychloroquine'
 table(trt)
 
@@ -37,6 +44,7 @@ wilcox.test(scores_individ$max_daily_score[trt],
 ```
 
 
+no imputation total scores - no clear difference in cumulative distribution functions
 
 ```{r severity_ecdf}
 par(las=1)
@@ -46,5 +54,62 @@ plot(ecdf(x = log10(scores_individ$max_daily_score[trt])),main='',
 lines(ecdf(x = log10(scores_individ$max_daily_score[!trt])),
       verticals = TRUE, do.points = FALSE,
       col='red')
+```
+
+
+## Imputation
+
+```{r}
+impute_score = function(dat, ID,
+                        my_cols = c('label','date','max_daily_score','treatment')){
+  
+  if(!all(my_cols %in% colnames(dat))) stop('missing columns')
+  dat = dat[dat$label == ID, my_cols]
+  
+  min_date = min(dat$date,na.rm = T)
+  max_date = max(dat$date,na.rm = T)
+  all_dates = ymd(seq(ymd(min_date),ymd(max_date),by='days'))
+  dates_missing = all_dates[!all_dates %in% ymd(dat$date)]
+  if(length(dates_missing)>0){
+    dat = merge(dat[, my_cols], 
+                data.frame(label=ID, 
+                           date=dates_missing,
+                           max_daily_score=NA,
+                           treatment=dat$treatment[1]),
+                by=my_cols, all=T)
+    dat = dplyr::arrange(dat, date)
+    ind_observed = which(!is.na(dat$max_daily_score))
+    for(i in 1:(length(ind_observed)-1)){
+      if(!difftime(dat$date[ind_observed[i+1]], 
+                   dat$date[ind_observed[i]],
+                   units = 'days')>7){
+        #impute using each end
+        fimp=approxfun(x = ind_observed[c(i,i+1)],
+                       y = log10(dat$max_daily_score[ind_observed[c(i,i+1)]]))
+        my_indices = ind_observed[i]:ind_observed[i+1]
+        dat$max_daily_score[my_indices]=
+          10^fimp(my_indices)
+      }
+    }
+  }
+return(dat)
+}
+out=lapply(unique(dat_sev$label[!is.na(dat_sev$date)]),
+           function(x, dat){
+             impute_score(dat = dat, ID = x)
+           }, dat=dat_sev[!is.na(dat_sev$date), ])
+df = do.call("rbind", out)
+
+scores_individ_imp=
+  aggregate(max_daily_score ~ label+treatment, 
+                         data = df, sum)
+trt = scores_individ_imp$treatment=='Chloroquine/Hydroxychloroquine'
+table(trt)
+
+aggregate(max_daily_score ~ treatment, 
+          data = scores_individ_imp,quantile)
+wilcox.test(scores_individ_imp$max_daily_score[trt],
+            scores_individ_imp$max_daily_score[!trt])
+
 ```
 
