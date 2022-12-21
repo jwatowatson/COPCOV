@@ -1,0 +1,91 @@
+---
+title: "Appendix XX: Days lost to work"
+output: html_document
+date: "2022-12-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = T, cache.comments = FALSE,
+                      echo = F, include = TRUE, 
+                      fig.width = 8, fig.height = 8,
+                      fig.pos = 'H',dev = 'png', dpi = 300)
+```
+
+```{r, include=FALSE}
+library(readxl)
+library(brms)
+options(mc.cores = parallel::detectCores())
+```
+
+# Background
+
+Participants in the trial could record via the mobile application whether they missed a day of work due to symptoms. For each participant, we sum the total number of reported work days lost. The large majority of participants report zero work days lost.
+
+```{r}
+# Load data
+# get the number of days off work due to illness
+dat = read_excel('Data/work_loss_days.xlsx')
+dat$days_lost = ifelse(is.na(dat$days_lost),0,dat$days_lost)
+days_lost = aggregate(days_lost ~ label+treatment, data = dat, sum)
+
+total_days_lost_arm = aggregate(days_lost ~ treatment, data = dat, sum)
+
+# get the total number of days in study
+inclusion_data = readxl::read_excel(path = 'Data/Time_events.xlsx')
+inclusion_data$study_days = apply(inclusion_data[, c('random_date','fs_date')],
+                                  1, function(x) {
+  difftime(as.POSIXct(x[2]), as.POSIXct(x[1]),units = 'days')+1
+})
+
+days_lost = merge(days_lost,
+                  inclusion_data[,c('subjectno','study_days')],
+                  by.x = 'label', by.y='subjectno', all=T)
+
+table(One_or_more_days_lost=days_lost$days_lost>0, Arm=days_lost$treatment)
+```
+
+standard mean difference
+```{r}
+aggregate(90*days_lost/study_days~treatment, data=days_lost, mean)
+mod_RR = glm(days_lost>0 ~ treatment + offset(log(study_days)), 
+             family = poisson(link='log'),
+             data = days_lost)
+summary(mod_RR)
+```
+
+
+Standard Poisson regression
+
+```{r}
+mod = glm(days_lost ~ treatment , offset = log(study_days),
+          data = days_lost, family = poisson(link='log'))
+
+summary(mod)
+```
+
+zero-inflated Poisson using brms
+
+```{r}
+fit_zinb1 <- brm(bf(days_lost ~ treatment + offset(log(study_days)),
+                    zi ~ treatment),
+                 data = days_lost, family = zero_inflated_poisson())
+
+summary(fit_zinb1)
+plot(conditional_effects(fit_zinb1), ask = FALSE)
+
+preds = posterior_predict(fit_zinb1)
+table(days_lost$treatment)
+
+ind = days_lost$treatment=='Chloroquine/Hydroxychloroquine'
+preds_HCQ = 1000*90*rowSums(preds[, ind])/sum(days_lost$study_days[ind])
+preds_Placebo = 1000*90*rowSums(preds[, !ind])/sum(days_lost$study_days[!ind])
+round(mean(preds_HCQ))
+round(quantile(preds_HCQ, probs = c(0.025, 0.975)))
+
+round(mean(preds_Placebo))
+round(quantile(preds_Placebo, probs = c(0.025, 0.975)))
+
+round(mean(preds_HCQ-preds_Placebo))
+round(quantile(preds_HCQ-preds_Placebo, probs = c(0.025, 0.975)))
+```
+

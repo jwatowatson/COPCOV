@@ -1,0 +1,423 @@
+---
+title: "COPCOV endpoint review"
+output: html_notebook
+---
+David Eyre, Tim Peto
+14 December 2022
+
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+
+theme_set(theme_light())
+```
+
+# Import data
+
+## Read data
+
+Read in data provided
+
+```{r}
+df_raw = read_excel("Data/Endpoint_review_06_12_2022_latest.xlsx")
+```
+
+## Reformat and truncate
+
+Reformat to only keep required columns, and truncate all serology values to 10 if lower than 10
+
+```{r}
+df_pre = df_raw %>% 
+  select(subjectno, site, d0_1in50 = "D0 1/50 Serum Ab titre",
+         d90_1in50 = "D90 1/50 Serum Ab titre",
+         d0_1in400 = "D0 1/400 Serum Ab titre", d90_1in400 = "D90 1/400 Serum Ab titre",
+         vac_1in50 = "Day vaccine 1/50 Serum Ab titre",
+         vac_1in400 = "Day vaccine 1/400 Serum Ab titre",
+         d0_dbs = "D0 DBS 1/66", 
+         d30_dbs = "D30 DBS 1/66",
+         d60_dbs = "D60 DBS 1/66",
+         d90_dbs = "D90 DBS 1/66",
+         vac_dbs = "DVaccine DBS 1/66",
+         pcr_result = "PCR_Res",
+         pcr_date = "Swab date",
+         randomisation_date = "Randomisation date",
+         model = Model,
+         flag = Flag
+         ) %>% 
+  mutate(pcr_date = as.Date(pcr_date, "%d%b%Y"),
+          d0_1in50 = ifelse(d0_1in50<10, 10, d0_1in50),
+          d90_1in50 = ifelse(d90_1in50<10, 10, d90_1in50),
+          d0_1in400 = ifelse(d0_1in400<10, 10, d0_1in400),
+          d90_1in400 = ifelse(d90_1in400<10, 10, d90_1in400),
+          vac_1in50 = ifelse(vac_1in50<10, 10, vac_1in50),
+          vac_1in400 = ifelse(vac_1in400<10, 10, vac_1in400),
+          d0_dbs = ifelse(d0_dbs<10, 10, d0_dbs),
+          d30_dbs = ifelse(d30_dbs<10, 10, d30_dbs),
+          d60_dbs = ifelse(d60_dbs<10, 10, d60_dbs),
+          d90_dbs = ifelse(d90_dbs<10, 10, d90_dbs),
+          vac_dbs = ifelse(vac_dbs<10, 10, vac_dbs)
+         )
+  
+```
+
+
+## QC of serum data: remove 1:400 data where discordant with 1:50 data
+
+Expect 1:400 to be at least 2500 on repeat, i.e. at least 33% of threshold for repeating, 7500
+
+```{r}
+df_pre %>% count(d0_1in400<2500)
+```
+
+```{r}
+df_pre %>% count(d90_1in400<2500)
+```
+
+```{r}
+df_pre %>% count(vac_1in400<2500)
+```
+
+Total participants affected overall
+```{r}
+df_pre %>% filter(d0_1in400<2500 | d90_1in400<2500 | vac_1in400<2500) %>% nrow()
+```
+
+
+Remove 1:400 readings for those marked TRUE above as likely unreliable - and set to NA
+
+```{r}
+df = df_pre %>% 
+  mutate(
+    d0_1in400 = ifelse(d0_1in400<2500, NA, d0_1in400),
+    d90_1in400 = ifelse(d90_1in400<2500, NA, d90_1in400),
+    vac_1in400 = ifelse(vac_1in400<2500, NA, vac_1in400),
+  )
+```
+
+
+
+# Establish equivalent readings for serum and DBS
+
+Plot of DBS vs serum at baseline - note excess of values at 10 on both x and y axes representing potential false negative results
+
+```{r}
+df %>% 
+  filter(!is.na(coalesce(d0_1in400, d0_1in50)), !is.na(d0_dbs)) %>% 
+  ggplot(aes(x=coalesce(d0_1in400, d0_1in50), y=ifelse(d0_dbs<10,10,d0_dbs), color=is.na(d0_1in400))) +
+  geom_point() +
+  scale_x_continuous(name = "Day 0 serology", trans='log10') +
+  scale_y_continuous(name = "Day 0 DBS", trans='log10') +
+  scale_color_discrete(name="Used 1:400") 
+```
+
+Plot of DBS vs serum at day 90
+
+```{r}
+df %>% 
+  filter(!is.na(coalesce(d90_1in400, d90_1in50)), !is.na(d90_dbs)) %>% 
+  ggplot(aes(x=coalesce(d90_1in400, d90_1in50), y=ifelse(d90_dbs<10,10,d90_dbs), color=is.na(d90_1in400))) +
+  geom_point() +
+  scale_x_continuous(name = "Day 90 serology", trans='log10') +
+  scale_y_continuous(name = "Day 90 DBS", trans='log10') +
+  scale_color_discrete(name="Used 1:400")
+```
+
+Use day 0 and day 90 data to work out conversion for DBS --> serum values. Remove very low values for both assays first and only use data above 7500 ng/ml on serum assay where this has come from the 1:400 assay (shown in red).
+
+Prepare data
+```{r}
+plot_df = 
+  bind_rows(
+      df %>% 
+        select(serum_1in50 = d90_1in50, serum_1in400 = d90_1in400, dbs = d90_dbs),
+      df %>% 
+        select(serum_1in50 = d0_1in50, serum_1in400 = d0_1in400, dbs = d0_dbs)
+  ) %>% 
+  filter(!is.na(coalesce(serum_1in400, serum_1in50)), !is.na(dbs)) %>% #remove missing data
+  filter(!(serum_1in50>7500 & is.na(serum_1in400))) %>% # remove data points missing 1:400 data where should have it
+  mutate(serum = coalesce(serum_1in400, serum_1in50)) %>% 
+  filter(serum>10, dbs>10)
+```
+
+Fit regression model comparing log10(dbs) to log10(serum). Here we save the DBS threshold calculated as the equivalent of 1250 ng/ml on the serum assay. This is used below.
+```{r}
+m = lm(log10(dbs) ~ log10(serum) + 0, data=plot_df)
+summary(m)
+(dbs_threshold = as.numeric(10^(predict(m, newdata=tibble(serum=1250)))))
+```
+
+Plot data - Dashed lines above indicate potential thresholds for each assay, determined using this linear model above 
+```{r}
+plot_df %>% 
+  ggplot(aes(x=serum, y=dbs, color=is.na(serum_1in400))) +
+  geom_point() +
+  scale_x_continuous(name = "Day 0 and 90 serum", trans='log10') +
+  scale_y_continuous(name = "Day 0 and 90 DBS", trans='log10') +
+  scale_color_discrete(name="Used 1:400") +
+  theme_light() + 
+  geom_vline(xintercept=1250, linetype="dashed", alpha=0.8) +
+  geom_hline(yintercept=dbs_threshold, linetype="dashed", alpha=0.8)
+```
+
+
+
+
+
+
+
+# Undertake QC of serum and DBS data by comparisons
+
+## Serum data, 1:50 vs 1:400
+Distribution of baseline 1:400 results where 1:50 result >7500, without any removal of erroneous 1:400 data
+```{r}
+df_pre %>% 
+  filter(d0_1in50 >= 7500, !is.na(d0_1in400)) %>% 
+  ggplot(aes(x=d0_1in400)) +
+  geom_histogram(bins=30) +
+  scale_x_continuous(trans="log10") +
+  xlab("Day 0, 1:400 readings") + ylab("Count") + 
+  geom_vline(xintercept = 1250, linetype="dashed", alpha=0.8)
+```
+
+Using a threshold of 1250 ng/ml to identify potential false negatives
+```{r}
+df_pre %>% 
+  filter(d0_1in50 >= 7500, !is.na(d0_1in400)) %>% 
+  summarise(n=n(), potential_fn = sum(d0_1in400<1250), pct = round(100*potential_fn/n,1))
+```
+Using a threshold of 100 ng/ml to identify potential false negatives
+```{r}
+df_pre %>% 
+  filter(d0_1in50 >= 7500, !is.na(d0_1in400)) %>% 
+  summarise(n=n(), potential_fn = sum(d0_1in400<100), pct = round(100*potential_fn/n,1))
+```
+## Serum data, 1:50 vs 1:400
+Here we compare 1:50 seropositivity (1250 ng/ml threshold) and DBS positivity (using threshold calculated above) at baseline 
+
+```{r}
+df %>% 
+  filter(!is.na(d0_1in50), !is.na(d0_dbs)) %>% 
+  group_by(serum_positive=d0_1in50>=1250) %>% 
+  summarise(n=n(), dbs_pos = sum(d0_dbs >= dbs_threshold), pct_pos = 100*dbs_pos/n, dbs_neg = n-dbs_pos, pct_neg = 100*dbs_neg/n)
+```
+In serum positives, potentially miss 31% by DBS.
+
+In DBS positive, potentially miss 7% by serum.
+
+```{r}
+df %>% 
+  filter(!is.na(d0_1in50), !is.na(d0_dbs)) %>% 
+  group_by(d0_dbs >= dbs_threshold) %>% 
+  summarise(n=n(), serum_pos = sum(serum_positive=d0_1in50>=1250), pct_pos = 100*serum_pos/n, serum_neg = n-serum_pos, pct_neg = 100*serum_neg/n)
+```
+
+
+# Observed baseline seroprevalance
+By serum
+```{r}
+df %>% 
+  ungroup() %>% 
+  filter(!is.na(d0_1in50)) %>% 
+  summarise(n=n(), pos = sum(d0_1in50>=1250), pct = 100*pos/n)
+```
+Note under-estimate given imperfect sensitivity above
+
+
+By DBS
+```{r}
+df %>% 
+  ungroup() %>% 
+  filter(!is.na(d0_dbs)) %>% 
+  summarise(n=n(), pos = sum(d0_dbs >= dbs_threshold), pct = 100*pos/n)
+```
+Note underestimate given limited sensitivity above
+
+
+# Further data preparation
+For now proceed based on data as provided, calculating summary variables below.
+
+## Summary variables for DBS
+
+Record the first and last DBS values, assuming that DBS measurement stops after vaccination (no information provided to refute this)
+
+```{r}
+df = df %>% 
+  rowwise() %>% 
+  mutate(dbs_first = coalesce(d0_dbs, d30_dbs, d60_dbs),
+         dbs_last = coalesce(vac_dbs, d90_dbs, d60_dbs, d30_dbs),
+         dbs_first_label = case_when(
+           !is.na(d0_dbs) ~ 'd0',
+           !is.na(d30_dbs) ~ 'd30',
+           !is.na(d60_dbs) ~ 'd60'
+         ),
+         dbs_last_label = case_when(
+           !is.na(vac_dbs) ~ 'vaccine',
+           !is.na(d90_dbs) ~ 'd90',
+           !is.na(d60_dbs) ~ 'd60',
+           !is.na(d30_dbs) ~ 'd30'
+         ),
+         dbs_available = case_when(
+           dbs_first_label != dbs_last_label ~ 1,
+           TRUE ~ 0
+         )
+  ) %>% 
+  mutate(dbs_ratio = dbs_last/dbs_first)
+```
+
+Summary of how many individuals have available DBS data
+```{r}
+df %>% 
+  filter(d0_1in50<=10) %>% 
+  count(dbs_available==1)
+```
+
+## Check 1:400 always have 1:50
+
+Check for any 1:400 values without a corresponding 1:50 value
+
+```{r}
+df %>% filter(is.na(d0_1in50), !is.na(d0_1in400))
+```
+
+```{r}
+df %>% filter(is.na(d90_1in50), !is.na(d90_1in400))
+```
+
+```{r}
+df %>% filter(is.na(vac_1in50), !is.na(vac_1in400))
+```
+
+Safe to rely on 1:50 being present always when 1:400 present
+
+Add summary column for if outcome based on vaccination
+
+```{r}
+df = df %>% mutate(
+  vaccinated = ifelse(is.na(vac_1in50), 0, 1)
+)
+
+df %>% count(vaccinated)
+```
+
+## Summary end value for serum
+
+Check for any participants with vaccine and d90 end point
+
+```{r}
+df %>% 
+  filter(!is.na(d90_1in50), !is.na(vac_1in50))
+```
+
+For these two assume the correct end point is vaccination
+
+```{r}
+df = df %>% 
+  mutate(last_1in50 = coalesce(vac_1in50, d90_1in50),
+      last_1in400 = ifelse(vaccinated == 0, d90_1in400, vac_1in400))
+```
+
+
+# Identify those who have serum data available
+```{r}
+df = df %>% 
+  mutate(
+    serum_available = case_when(
+      (d0_1in50 < 7500 | d0_1in400 >=2500) & (last_1in50 <7500 | last_1in400 >=2500) ~ 1, #valid results within limits set 
+      d0_1in50 < 1250 & last_1in50 >=1250 ~ 1, #seroconversion at 1:50 - so no 1:400 done
+      d0_1in50 >= 1250 & last_1in50/d0_1in50 >=4 ~ 1, #4-fold rise at 1:50 - so no 1:400 done
+      TRUE ~ 0
+    )
+  ) 
+```
+
+
+
+# Identify those with an outcome that can be assessed via serology
+
+```{r rows.print=30}
+df = df %>% 
+  mutate(outcome_possible = case_when(
+    pcr_result == "POS" ~ 'yes: pcr positive',
+    is.na(d0_1in50) & dbs_available == 0 ~ 'no: no serum or DBS at baseline',
+    is.na(last_1in50) & dbs_available == 0 ~ 'no: no serum or DBS at follow up',
+    d0_1in50 > 7500 & is.na(d0_1in400) & dbs_available == 0 ~ 'no: baseline 1:50 >7500 and no baseline 1:400',
+    d0_1in50 >= 7500/4 & last_1in50 > 7500 & last_1in50/d0_1in50 <4 
+    & is.na(last_1in400) & dbs_available == 0 ~ 'no: f/u 1:50 >7500, no f/u 1:400, seeking 4-fold rise w/ 1:400',
+    TRUE ~ 'yes: no exclusion met'
+  )) 
+
+df %>% 
+  count(outcome_possible, serum_available, dbs_available)
+```
+
+
+The most problematic is the "no: f/u 1:50 >7500, no f/u 1:400, seeking 4-fold rise w/ 1:400" criterion as it contains an outcome. However, where there was a 4-fold rise based on 1:50 data the 1:400 was not performed and so need this outcome here in the exclusion criteria.
+
+# Record outcomes
+Outcomes are recorded jointly whether vaccinated or not, but vaccination status held in separate column so can separate later.
+```{r rows.print=30}
+df = df %>% 
+  mutate(outcome = case_when(
+    str_detect(outcome_possible, 'no:') ~ NA_character_, # if outcome not possible don't record one
+    #binary sero-conversion
+    serum_available==1 & d0_1in50 < 1250 & last_1in50 >=1250 & last_1in50/d0_1in50 >=4 ~ 'Binary seroconversion and 4-fold rise',
+    serum_available==1 & d0_1in50 < 1250 & last_1in50 >=1250 & last_1in50/d0_1in50 <4 ~ 'Binary seroconversion and no 4-fold rise',
+    # already sero-positive, 1in50 vs 1in50
+    serum_available==1 & d0_1in50 >= 1250 & last_1in50/d0_1in50 >=4  ~ 'Baseline ab positive with 4-fold rise in 1:50',
+    # already sero-positive, 1in400 vs 1in400
+    serum_available==1 & d0_1in50 >= 1250 & last_1in400/d0_1in400 >=4  ~ 'Baseline ab positive with 4-fold rise in 1:400',
+    # already sero-positive, 1in50 vs 1in400 later, with no 1:400 at baseline
+    serum_available==1 & d0_1in50 >= 1250 & is.na(d0_1in400) & last_1in400/d0_1in50 >=4  ~ 'Baseline ab positive with 4-fold rise in 1:50 vs 1:400',
+    # DBS seroconversion based on look-up value - only allow if serum not available
+    serum_available==0 & dbs_first < dbs_threshold & dbs_last >= dbs_threshold & dbs_last/dbs_first >=4 ~ 'DBS binary seroconversion and 4-fold rise',
+    serum_available==0 & dbs_first < dbs_threshold & dbs_last >= dbs_threshold & dbs_last/dbs_first <4 ~ 'DBS binary seroconversion and no 4-fold rise',
+    # DBS 4-fold rise - only allow if serum not available
+    serum_available==0 & dbs_first >= dbs_threshold & dbs_last/dbs_first >=4  ~ 'DBS baseline ab positive with 4-fold rise'
+  ))
+
+df %>%  
+  count(outcome_possible, outcome) %>% 
+  knitr::kable()
+```
+
+# Reconcile outcomes provided with initial findings
+```{r rows.print=50}
+df %>% 
+  group_by(model, outcome, outcome_possible) %>% 
+  summarise(n=n(), vaccinated = sum(vaccinated)) %>% 
+  knitr::kable()
+```
+
+Discrepant outcomes - with possible outcome
+```{r}
+df %>% filter(!is.na(model), model!="dbs") %>% filter(is.na(outcome)) %>% filter(str_detect(outcome_possible, 'yes: ')) %>% 
+  select(model, subjectno, d0_1in50, d0_1in400, d90_1in50, d90_1in400, vac_1in50, vac_1in400)
+```
+E013-382 - earlier vaccine outcome without 4-fold rise
+The remainder are impacted by the removal of the 1:400 data where this is <2500.
+
+# Write output
+```{r}
+df$type_data = ifelse(df$serum_available==1, 'serum','DBS')
+df$type_data[df$serum_available==0 & df$dbs_available==0]='None'
+table(df$type_data, useNA = 'ifany')
+table(df$type_data, is.na(df$outcome))
+write_csv(df, 'Outputs/serology_outcomes.csv')
+```
+
+
+# Final checks
+Serum outcomes only with serum available
+```{r}
+df %>% count(serum_available, outcome)
+```
+
+Check all negative outcomes had either serum or DBS available
+```{r}
+df %>% count(outcome_possible, serum_available, dbs_available)
+```
+
+
+

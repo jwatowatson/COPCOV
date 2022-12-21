@@ -1,0 +1,120 @@
+---
+title: "Meta-analysis"
+author: "James Watson"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = T, cache.comments = FALSE,
+                      echo = F, include = TRUE, 
+                      fig.width = 8, fig.height = 8,
+                      fig.pos = 'H',dev = 'png', dpi = 300)
+```
+
+
+
+```{r}
+library(meta)
+my_sheets = readxl::excel_sheets('../Data/COPCOV_Meta_Analysis_v2.xlsx')
+
+```
+
+
+
+```{r meta_plot_efficacy, fig.height=5, fig.width=9}
+for(ss in c('Primary_endpoint','Laboratory_confirmed')){
+  meta_vals = readxl::read_excel('../Data/COPCOV_Meta_Analysis_v2.xlsx',
+                                 sheet = ss,na = 'NA')
+  
+  if(ss %in% my_sheets[c(1,3)]) meta_vals = meta_vals[meta_vals$Study !='Grau-Pujol 2021',]
+  
+  meta_vals = meta_vals[!is.na(meta_vals$RR), ]
+  meta_vals$log_RR = log(meta_vals$RR)
+  
+  
+  outs=metagen(TE = meta_vals$log_RR, 
+               studlab = meta_vals$Study,
+               sm = 'RR',
+               lower = log(meta_vals$LL_RR),
+               upper = log(meta_vals$UL_RR))
+  
+  meta::forest.meta(outs, 
+                    rightcols = c("effect", "ci","w.fixed"),
+                    leftcols='studlab',
+                    comb.random=F, fontsize=10,
+                    print.I2=T, print.tau=F, test.overall=F,
+                    print.tau2=F,
+                    plotwidth = '12cm',
+                    xlab = ' Favours HCQ/CQ        Favours control')
+  
+}
+```
+
+
+```{r meta_discontinuation, fig.height=5, fig.width=9}
+meta_vals = readxl::read_excel('../Data/COPCOV_Meta_Analysis_v2.xlsx',
+                               sheet = 'Discontinuation',na = 'NA')
+meta_vals = meta_vals[!is.na(meta_vals$event.e), ]
+
+outs=metabin(event.e = meta_vals$event.e,n.e = meta_vals$n.e,
+             event.c = meta_vals$event.c, n.c = meta_vals$n.c,
+             studlab = meta_vals$Study,
+             comb.fixed=T,
+             method =  'GLMM',
+             sm = 'OR')
+
+forest.meta(outs, 
+            rightcols = c("effect", "ci","w.fixed"),
+            # leftcols='studlab',
+            comb.random=F, fontsize=10,
+            lab.e = '(Hydroxy)chloroquine',lab.c = 'Placebo',
+            print.I2=T, print.tau=F, test.overall=F,
+            plotwidth = '8cm',
+            pooled.totals	=T,pooled.events	=T,
+            title = 'Adverse events leading to treatment discontinuation',
+            xlab = ' Fewer in HCQ/CQ    Fewer in placebo')
+```
+
+
+
+
+
+```{r funnel_plot, fig.height=8, fig.width=8}
+for(ss in 'Primary_endpoint'){
+  meta_vals = readxl::read_excel('../Data/COPCOV_Meta_Analysis_v2.xlsx',
+                                 sheet = ss,na = 'NA')
+  
+  if(ss %in% my_sheets[c(1,3)]) meta_vals = meta_vals[meta_vals$Study !='Grau-Pujol 2021',]
+  
+  meta_vals$log_RR = log(meta_vals$RR)
+  meta_vals$se = 
+    (abs(log(meta_vals$LL_RR)-meta_vals$log_RR) +
+       abs(log(meta_vals$UL_RR)-meta_vals$log_RR))/(2*1.96)
+  
+  outs=metagen(TE = meta_vals$log_RR, 
+               studlab = meta_vals$Study,
+               sm = 'RR',
+               lower = log(meta_vals$LL_RR),
+               upper = log(meta_vals$UL_RR))
+  
+  
+  if(ss != 'Discontinuation'){
+    par(las=1)
+    mygreys = c(adjustcolor('darkgrey'),
+                adjustcolor('grey',),
+                adjustcolor('lightgrey',.4))
+    cc <- funnel.meta(outs, comb.fixed = TRUE,
+                      level = 0.95, studlab=T,
+                      cex.studlab = .7,
+                      pos.studlab = c(1,4,4,2,3,#4,
+                                      2,2,4,4,2),
+                      contour = c(0.9, 0.95, 0.99))$col.contour
+    abline(v=1)
+    legend('topright',inset = 0.04,
+           c("0.05 < p < 0.1", "0.01 < p < 0.05", "< 0.01"), 
+           fill = cc,bty='n')
+  }
+}
+```
+

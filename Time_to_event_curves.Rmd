@@ -1,0 +1,102 @@
+---
+title: "COPCOV_plots"
+author: "James Watson"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = T, cache.comments = FALSE,
+                      echo = F, include = TRUE, 
+                      fig.width = 8, fig.height = 8,
+                      fig.pos = 'H',dev = 'png', dpi = 300)
+
+```
+
+## R Markdown
+
+```{r}
+library(survival)
+library(survminer)
+library(lubridate)
+
+# surv_dat = readxl::read_excel('../Data/PCR_survival.xlsx')
+surv_dat = readxl::read_excel('../Data/PCR_survival_with_All_Cause_ill_16_12_20_revised.xlsx')
+
+ind = surv_dat$pcr_event==1
+ind_all = surv_dat$All_ill_event==1
+
+table(ind)
+table(ind_all)
+
+surv_dat$EOS = apply(surv_dat[, c('random_date','fs_date')], 1, function(x) {
+  difftime(as.POSIXct(x[2]), as.POSIXct(x[1]),units = 'days')
+}) 
+surv_dat$PCR_date = ifelse(surv_dat$pcr_event==1, surv_dat$PCRFu_days, surv_dat$EOS)
+surv_dat$ARI_date = ifelse(surv_dat$All_ill_event==1, surv_dat$All_cFu_days, surv_dat$EOS)
+
+
+sum(surv_dat$pcr_event)
+sum(surv_dat$All_ill_event)
+
+survmod = survfit(Surv(PCR_date, pcr_event) ~ treatment,
+                  data = surv_dat)
+LRTest=survdiff(Surv(PCR_date, pcr_event) ~ treatment,
+                data = surv_dat)
+pchisq(LRTest$chisq, length(LRTest$n)-1, lower.tail = FALSE)
+
+survmod_all = survfit(Surv(ARI_date, All_ill_event) ~ treatment,
+                      data = surv_dat)
+LRTest=survdiff(Surv(ARI_date, All_ill_event) ~ treatment,
+                data = surv_dat)
+pchisq(LRTest$chisq, length(LRTest$n)-1, lower.tail = FALSE)
+
+```
+
+
+
+```{r Figure2, fig.width=12}
+splots <- list()
+
+splots[[1]] <- 
+  ggsurvplot(survmod_all, conf.int = T,#data = surv_dat,
+             xlim=c(0,90), ylim=c(0, .05), 
+             xlab='Days in study',
+             pval = T,
+             pval.coord = c(10,.03),
+             break.x.by=30,
+             palette = 'Set2',fun = function(x) 1-x,
+             legend.labs = c('Chloroquine/hydroxychloroquine',
+                             'Placebo'),
+             risk.table.y.text.col	= T,
+             risk.table = T,risk.table.y.text=F,
+             legend.title='',
+             font.x=15,font.y=15,font.table=15,
+             font.legend=15,
+             ylab='All cause respiratory illness', 
+             surv.scale='percent', 
+             ggtheme = theme_survminer(base_family='serif'))
+
+splots[[2]] <- ggsurvplot(survmod, conf.int = T,data = surv_dat,
+                          xlim=c(0,90), ylim=c(0, .05), 
+                          xlab='Days in study',
+                          pval = T,
+                          pval.coord = c(10,.03),
+                          break.x.by=30,
+                          palette = 'Set2',fun = function(x) 1-x,
+                          legend.labs = c('Chloroquine/hydroxychloroquine',
+                                          'Placebo'),
+                          risk.table.y.text.col	= T,
+                          risk.table = T,risk.table.y.text=F,
+                          legend.title='',
+                          font.x=15,font.y=15,font.table=15,
+                          font.legend=15,
+                          ylab='Laboratory confirmed COVID-19', 
+                          surv.scale='percent', 
+                          ggtheme = theme_survminer(base_family='serif'))
+
+res=
+  arrange_ggsurvplots(splots,
+                      print = T)
+```
+
