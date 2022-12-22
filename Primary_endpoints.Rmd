@@ -59,6 +59,9 @@ write_csv(x = outcome_dat,file = 'Outputs/outcomes_derived.csv')
 
 
 ```{r}
-riskratio(table(outcome_dat$Primary_endpoint, outcome_dat$treatment),rev='rows')
+riskratio(table(outcome_dat$Primary_endpoint, outcome_dat$treatment),rev='rows',method = 'wald')
+
+summary(glm(Primary_endpoint ~ treatment, data = outcome_dat, family=poisson(link='log')))
+
 ```
 

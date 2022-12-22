@@ -1,5 +1,5 @@
 ---
-title: "COPCOV endpoint review"
+title: "COP CoV serological endpoint review"
 output: html_notebook
 ---
 David Eyre, Tim Peto
@@ -21,7 +21,7 @@ theme_set(theme_light())
 Read in data provided
 
 ```{r}
-df_raw = read_excel("Data/Endpoint_review_06_12_2022_latest.xlsx")
+df_raw = read_excel("Endpoint_review_06_12_2022_latest.xlsx")
 ```
 
 ## Reformat and truncate
@@ -163,80 +163,7 @@ plot_df %>%
 
 
 
-
-
-
-
-# Undertake QC of serum and DBS data by comparisons
-
-## Serum data, 1:50 vs 1:400
-Distribution of baseline 1:400 results where 1:50 result >7500, without any removal of erroneous 1:400 data
-```{r}
-df_pre %>% 
-  filter(d0_1in50 >= 7500, !is.na(d0_1in400)) %>% 
-  ggplot(aes(x=d0_1in400)) +
-  geom_histogram(bins=30) +
-  scale_x_continuous(trans="log10") +
-  xlab("Day 0, 1:400 readings") + ylab("Count") + 
-  geom_vline(xintercept = 1250, linetype="dashed", alpha=0.8)
-```
-
-Using a threshold of 1250 ng/ml to identify potential false negatives
-```{r}
-df_pre %>% 
-  filter(d0_1in50 >= 7500, !is.na(d0_1in400)) %>% 
-  summarise(n=n(), potential_fn = sum(d0_1in400<1250), pct = round(100*potential_fn/n,1))
-```
-Using a threshold of 100 ng/ml to identify potential false negatives
-```{r}
-df_pre %>% 
-  filter(d0_1in50 >= 7500, !is.na(d0_1in400)) %>% 
-  summarise(n=n(), potential_fn = sum(d0_1in400<100), pct = round(100*potential_fn/n,1))
-```
-## Serum data, 1:50 vs 1:400
-Here we compare 1:50 seropositivity (1250 ng/ml threshold) and DBS positivity (using threshold calculated above) at baseline 
-
-```{r}
-df %>% 
-  filter(!is.na(d0_1in50), !is.na(d0_dbs)) %>% 
-  group_by(serum_positive=d0_1in50>=1250) %>% 
-  summarise(n=n(), dbs_pos = sum(d0_dbs >= dbs_threshold), pct_pos = 100*dbs_pos/n, dbs_neg = n-dbs_pos, pct_neg = 100*dbs_neg/n)
-```
-In serum positives, potentially miss 31% by DBS.
-
-In DBS positive, potentially miss 7% by serum.
-
-```{r}
-df %>% 
-  filter(!is.na(d0_1in50), !is.na(d0_dbs)) %>% 
-  group_by(d0_dbs >= dbs_threshold) %>% 
-  summarise(n=n(), serum_pos = sum(serum_positive=d0_1in50>=1250), pct_pos = 100*serum_pos/n, serum_neg = n-serum_pos, pct_neg = 100*serum_neg/n)
-```
-
-
-# Observed baseline seroprevalance
-By serum
-```{r}
-df %>% 
-  ungroup() %>% 
-  filter(!is.na(d0_1in50)) %>% 
-  summarise(n=n(), pos = sum(d0_1in50>=1250), pct = 100*pos/n)
-```
-Note under-estimate given imperfect sensitivity above
-
-
-By DBS
-```{r}
-df %>% 
-  ungroup() %>% 
-  filter(!is.na(d0_dbs)) %>% 
-  summarise(n=n(), pos = sum(d0_dbs >= dbs_threshold), pct = 100*pos/n)
-```
-Note underestimate given limited sensitivity above
-
-
 # Further data preparation
-For now proceed based on data as provided, calculating summary variables below.
 
 ## Summary variables for DBS
 
@@ -339,7 +266,6 @@ df = df %>%
 ```{r rows.print=30}
 df = df %>% 
   mutate(outcome_possible = case_when(
-    pcr_result == "POS" ~ 'yes: pcr positive',
     is.na(d0_1in50) & dbs_available == 0 ~ 'no: no serum or DBS at baseline',
     is.na(last_1in50) & dbs_available == 0 ~ 'no: no serum or DBS at follow up',
     d0_1in50 > 7500 & is.na(d0_1in400) & dbs_available == 0 ~ 'no: baseline 1:50 >7500 and no baseline 1:400',
@@ -352,8 +278,6 @@ df %>%
   count(outcome_possible, serum_available, dbs_available)
 ```
 
-
-The most problematic is the "no: f/u 1:50 >7500, no f/u 1:400, seeking 4-fold rise w/ 1:400" criterion as it contains an outcome. However, where there was a 4-fold rise based on 1:50 data the 1:400 was not performed and so need this outcome here in the exclusion criteria.
 
 # Record outcomes
 Outcomes are recorded jointly whether vaccinated or not, but vaccination status held in separate column so can separate later.
@@ -382,22 +306,6 @@ df %>%
   knitr::kable()
 ```
 
-# Reconcile outcomes provided with initial findings
-```{r rows.print=50}
-df %>% 
-  group_by(model, outcome, outcome_possible) %>% 
-  summarise(n=n(), vaccinated = sum(vaccinated)) %>% 
-  knitr::kable()
-```
-
-Discrepant outcomes - with possible outcome
-```{r}
-df %>% filter(!is.na(model), model!="dbs") %>% filter(is.na(outcome)) %>% filter(str_detect(outcome_possible, 'yes: ')) %>% 
-  select(model, subjectno, d0_1in50, d0_1in400, d90_1in50, d90_1in400, vac_1in50, vac_1in400)
-```
-E013-382 - earlier vaccine outcome without 4-fold rise
-The remainder are impacted by the removal of the 1:400 data where this is <2500.
-
 # Write output
 ```{r}
 df$type_data = ifelse(df$serum_available==1, 'serum','DBS')
@@ -408,16 +316,13 @@ write_csv(df, 'Outputs/serology_outcomes.csv')
 ```
 
 
-# Final checks
-Serum outcomes only with serum available
+# Final check
+Serum outcomes only with serum available, DBS outcomes only with DBS and no serum
 ```{r}
-df %>% count(serum_available, outcome)
+df %>% count(outcome_possible, outcome, serum_available, dbs_available) %>% 
+  knitr::kable()
 ```
 
-Check all negative outcomes had either serum or DBS available
-```{r}
-df %>% count(outcome_possible, serum_available, dbs_available)
-```
 
 
 
