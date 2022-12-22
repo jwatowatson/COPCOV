@@ -32,36 +32,50 @@ outcome_dat = merge(outcome_dat, symptomatic, by='subjectno')
 
 # make endpoints
 
-```{r}
+```{r, echo=F}
 outcome_dat$Primary_endpoint = (outcome_dat$outcome_serology==1 | outcome_dat$pcr_event==1) & outcome_dat$symptomatic=='Symptomatic'
-table(outcome_dat$Primary_endpoint)
+writeLines('Primary endpoint (symptomatic COVID-19):')
+table(outcome_dat$Primary_endpoint, outcome_dat$treatment)
 
 outcome_dat$Asymptomatic_SARSCoV2 = (outcome_dat$outcome_serology==1 | outcome_dat$pcr_event==1) & outcome_dat$symptomatic=='Asymptomatic'
-table(outcome_dat$Asymptomatic_SARSCoV2)
 
+writeLines('Asymptomatic SARS-CoV-2:')
+table(outcome_dat$Asymptomatic_SARSCoV2, outcome_dat$treatment)
+
+writeLines('All PCR confirmed Symptomatic COVID-19:')
+table(outcome_dat$pcr_event, outcome_dat$treatment)
+
+writeLines('All serologically confirmed SARS-CoV-2 infections:')
 outcome_dat$Serology_COVID19 = outcome_dat$outcome_serology==1 & 
   outcome_dat$symptomatic=='Symptomatic'
-table(outcome_dat$Serology_COVID19)
+table(outcome_dat$Serology_COVID19, outcome_dat$treatment)
 
+writeLines('All Symptomatic COVID-19 serologically confirmed using serum:')
 outcome_dat$Serum_COVID19 = outcome_dat$outcome_serology==1 &
   outcome_dat$serum_available==1 &
   outcome_dat$symptomatic=='Symptomatic'
-table(outcome_dat$Serum_COVID19)
+table(outcome_dat$Serum_COVID19, outcome_dat$treatment)
 
+writeLines('All Symptomatic COVID-19 serologically confirmed using DBS:')
 outcome_dat$DBS_COVID19 = outcome_dat$outcome_serology==1 &
   outcome_dat$dbs_available==1 & outcome_dat$serum_available==0 &
   outcome_dat$symptomatic=='Symptomatic'
-table(outcome_dat$DBS_COVID19)
+table(outcome_dat$DBS_COVID19, outcome_dat$treatment)
 
 write_csv(x = outcome_dat,file = 'Outputs/outcomes_derived.csv')
 ```
 
-
+# Risk ratio estimation for primary endpoint
 
 ```{r}
 riskratio(table(outcome_dat$Primary_endpoint, outcome_dat$treatment),rev='rows',method = 'wald')
 
 summary(glm(Primary_endpoint ~ treatment, data = outcome_dat, family=poisson(link='log')))
+```
 
+for PCR endpoint
+
+```{r}
+summary(glm(pcr_event ~ treatment, data = outcome_dat, family=poisson(link='log')))
 ```
 
