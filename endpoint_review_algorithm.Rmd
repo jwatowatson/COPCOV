@@ -1,6 +1,8 @@
 ---
 title: "COP CoV serological endpoint review"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 David Eyre, Tim Peto
 14 December 2022
@@ -21,7 +23,7 @@ theme_set(theme_light())
 Read in data provided
 
 ```{r}
-df_raw = read_excel("Endpoint_review_06_12_2022_latest.xlsx")
+df_raw = read_excel("Data/Endpoint_review_06_12_2022_latest.xlsx")
 ```
 
 ## Reformat and truncate
