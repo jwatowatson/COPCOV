@@ -31,7 +31,7 @@ days_lost = aggregate(days_lost ~ label+treatment, data = dat, sum)
 total_days_lost_arm = aggregate(days_lost ~ treatment, data = dat, sum)
 
 # get the total number of days in study
-inclusion_data = readxl::read_excel(path = 'Data/Time_events.xlsx')
+inclusion_data = readxl::read_excel(path = 'Data/Time_events_16_01_2023_REVISED_MM_WS_Latest_FINAL_19_01_23.xlsx')
 inclusion_data$study_days = apply(inclusion_data[, c('random_date','fs_date')],
                                   1, function(x) {
   difftime(as.POSIXct(x[2]), as.POSIXct(x[1]),units = 'days')+1

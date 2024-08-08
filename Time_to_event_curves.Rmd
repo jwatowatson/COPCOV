@@ -10,47 +10,55 @@ knitr::opts_chunk$set(cache = T, cache.comments = FALSE,
                       echo = F, include = TRUE, 
                       fig.width = 8, fig.height = 8,
                       fig.pos = 'H',dev = 'png', dpi = 300)
-
+library(survival)
+library(survminer)
+library(lubridate)
+library(tidyverse)
+library(epitools)
 ```
 
 ## R Markdown
 
 ```{r}
-library(survival)
-library(survminer)
-library(lubridate)
+# surv_dat_old = readxl::read_excel('Data/Time_events_old.xlsx')
+surv_dat = readxl::read_excel('Data/Time_events_16_01_2023_REVISED_MM_WS_Latest_FINAL_19_01_23.xlsx')
+# surv_dat = surv_dat %>% filter(!duplicated(subjectno))
 
-# surv_dat = readxl::read_excel('../Data/PCR_survival.xlsx')
-surv_dat = readxl::read_excel('../Data/PCR_survival_with_All_Cause_ill_16_12_20_revised.xlsx')
+table(surv_dat$All_ill_event, surv_dat$treatment)
+table(surv_dat$pcr_event, surv_dat$treatment)
 
-ind = surv_dat$pcr_event==1
-ind_all = surv_dat$All_ill_event==1
+surv_dat = surv_dat %>% group_by(subjectno) %>%
+  mutate(swab_date = sort(c(c_date,sample_date))[1]) %>%
+  distinct(subjectno, .keep_all = T) %>%
+  mutate(
+    EOS = as.numeric(difftime(as.POSIXct(fs_date), as.POSIXct(random_date),units = 'days')),
+    Swab_time = ifelse(All_ill_event==1, 
+                       as.numeric(difftime(as.POSIXct(swab_date),
+                                           as.POSIXct(random_date),
+                                           units = 'days')),
+                       NA),
+    PCR_time_event = ifelse(pcr_event==1, Swab_time, EOS),
+    All_ill_time_event = ifelse(All_ill_event==1, Swab_time, EOS)
+  ) %>% ungroup %>%
+  arrange(All_ill_event, pcr_event)
 
-table(ind)
-table(ind_all)
+View(surv_dat[surv_dat$All_ill_event==1,
+              c('random_date','swab_date','EOS',
+                'pcr_event','All_ill_event',
+                'PCRFu_days','All_cFu_days',
+                'PCR_time_event','All_ill_time_event')])
 
-surv_dat$EOS = apply(surv_dat[, c('random_date','fs_date')], 1, function(x) {
-  difftime(as.POSIXct(x[2]), as.POSIXct(x[1]),units = 'days')
-}) 
-surv_dat$PCR_date = ifelse(surv_dat$pcr_event==1, surv_dat$PCRFu_days, surv_dat$EOS)
-surv_dat$ARI_date = ifelse(surv_dat$All_ill_event==1, surv_dat$All_cFu_days, surv_dat$EOS)
-
-
-sum(surv_dat$pcr_event)
-sum(surv_dat$All_ill_event)
-
-survmod = survfit(Surv(PCR_date, pcr_event) ~ treatment,
+survmod = survfit(Surv(PCRFu_days, pcr_event) ~ treatment,
                   data = surv_dat)
-LRTest=survdiff(Surv(PCR_date, pcr_event) ~ treatment,
+LRTest=survdiff(Surv(PCRFu_days, pcr_event) ~ treatment,
                 data = surv_dat)
 pchisq(LRTest$chisq, length(LRTest$n)-1, lower.tail = FALSE)
 
-survmod_all = survfit(Surv(ARI_date, All_ill_event) ~ treatment,
+survmod_all = survfit(Surv(All_cFu_days, All_ill_event) ~ treatment,
                       data = surv_dat)
-LRTest=survdiff(Surv(ARI_date, All_ill_event) ~ treatment,
+LRTest=survdiff(Surv(All_cFu_days, All_ill_event) ~ treatment,
                 data = surv_dat)
 pchisq(LRTest$chisq, length(LRTest$n)-1, lower.tail = FALSE)
-
 ```
 
 
@@ -73,7 +81,7 @@ splots[[1]] <-
              legend.title='',
              font.x=15,font.y=15,font.table=15,
              font.legend=15,
-             ylab='All cause respiratory illness', 
+             ylab='All-cause PCR-confirmed respiratory illness', 
              surv.scale='percent', 
              ggtheme = theme_survminer(base_family='serif'))
 
@@ -91,7 +99,7 @@ splots[[2]] <- ggsurvplot(survmod, conf.int = T,data = surv_dat,
                           legend.title='',
                           font.x=15,font.y=15,font.table=15,
                           font.legend=15,
-                          ylab='Laboratory confirmed COVID-19', 
+                          ylab='PCR-confirmed COVID-19', 
                           surv.scale='percent', 
                           ggtheme = theme_survminer(base_family='serif'))
 

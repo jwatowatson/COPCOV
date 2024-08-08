@@ -19,14 +19,15 @@ sessionInfo()
 
 load data
 ```{r}
-my_sheets = readxl::excel_sheets('Data/COPCOV_Meta_Analysis_v2.xlsx')
+fname = 'Data/COPCOV_Meta_Analysis_v2.1_15_08_23.xlsx'
+my_sheets = readxl::excel_sheets(fname)
 ```
 
 
 
 ```{r meta_plot_efficacy, fig.height=5, fig.width=9}
 for(ss in c('Primary_endpoint','Laboratory_confirmed')){
-  meta_vals = readxl::read_excel('Data/COPCOV_Meta_Analysis_v2.xlsx',
+  meta_vals = readxl::read_excel(fname,
                                  sheet = ss,na = 'NA')
   
   # no incident events in Grau-Pujol so remove
@@ -42,7 +43,7 @@ for(ss in c('Primary_endpoint','Laboratory_confirmed')){
                lower = log(meta_vals$LL_RR),
                upper = log(meta_vals$UL_RR))
   
-  meta::forest.meta(outs, 
+  meta::forest(outs, 
                     rightcols = c("effect", "ci","w.fixed"),
                     leftcols='studlab',
                     random = F,common=T,
@@ -57,8 +58,89 @@ for(ss in c('Primary_endpoint','Laboratory_confirmed')){
 ```
 
 
+Low risk of bias
+Only studies graded "Low" using the RoB-2 tool
+
+```{r meta_low_RoB, fig.height=5, fig.width=9}
+for(ss in c('Primary_endpoint','Laboratory_confirmed')){
+  meta_vals = readxl::read_excel(fname,
+                                 sheet = ss,na = 'NA')
+  # no incident events in Grau-Pujol so remove
+  meta_vals = meta_vals[meta_vals$Study !='Grau-Pujol 2021',]
+  
+  meta_vals = meta_vals[meta_vals$Study %in% c("Rajasingham 2020",
+                                               "Abella 2020",
+                                               "Rojas-Serrano 2022",
+                                               "Naggie 2021",
+                                               "Schilling 2023"),]
+  
+  meta_vals = meta_vals[!is.na(meta_vals$RR), ]
+  meta_vals$log_RR = log(meta_vals$RR)
+  
+  
+  outs=metagen(TE = meta_vals$log_RR, 
+               studlab = meta_vals$Study,
+               sm = 'RR',
+               lower = log(meta_vals$LL_RR),
+               upper = log(meta_vals$UL_RR))
+  
+  meta::forest(outs, 
+                    rightcols = c("effect", "ci","w.fixed"),
+                    leftcols='studlab',
+                    random = F,common=T,
+                    digits.pval = 3,
+                    comb.random=F, fontsize=10,
+                    print.I2=T, print.tau=F, test.overall=T,
+                    print.tau2=F,
+                    plotwidth = '13cm',
+                    xlab = ' Favours HCQ/CQ        Favours control')
+  
+}
+```
+
+
+Subgroup by risk of bias
+
+```{r subgroups, fig.height=7, fig.width=9}
+meta_vals = readxl::read_excel(fname,
+                               sheet = 'Primary_endpoint',na = 'NA')
+# no incident events in Grau-Pujol so remove
+meta_vals = meta_vals[meta_vals$Study !='Grau-Pujol 2021',]
+
+meta_vals$RoB = ifelse(meta_vals$Study %in% c('Seet 2021',
+                                              "Llanos-Cuentas 2023",
+                                              "Nasri 2023"),
+                       'Some concerns','Low')
+meta_vals$RoB = ifelse(meta_vals$Study %in% c('Syed 2021'),
+                       'High',meta_vals$RoB)
+meta_vals$RoB = factor(meta_vals$RoB, levels = c('High', 'Some concerns', 'Low'))
+meta_vals = meta_vals[!is.na(meta_vals$RR), ]
+meta_vals$log_RR = log(meta_vals$RR)
+outs=metagen(TE = meta_vals$log_RR, 
+             studlab = meta_vals$Study,
+             sm = 'RR',
+             lower = log(meta_vals$LL_RR),
+             upper = log(meta_vals$UL_RR),
+             data = meta_vals)
+
+mu1 = update(outs, subgroup = RoB, subgroup.name = "Risk of bias")
+
+meta::forest(mu1, 
+                  rightcols = c("effect", "ci","w.fixed"),
+                  leftcols='studlab',
+                  random = F,common=T,
+                  digits.pval = 3,
+                  comb.random=F, fontsize=10,
+                  print.I2=T, print.tau=F, test.overall=T,
+                  print.tau2=F,
+                  plotwidth = '13cm',
+                  xlab = ' Favours HCQ/CQ        Favours control',
+                  test.subgroup=F)
+```
+
+
 ```{r meta_discontinuation, fig.height=5, fig.width=9}
-meta_vals = readxl::read_excel('Data/COPCOV_Meta_Analysis_v2.xlsx',
+meta_vals = readxl::read_excel(fname,
                                sheet = 'Discontinuation',na = 'NA')
 meta_vals = meta_vals[!is.na(meta_vals$event.e), ]
 
@@ -69,7 +151,7 @@ outs=metabin(event.e = meta_vals$event.e,n.e = meta_vals$n.e,
              method =  'GLMM',
              sm = 'OR')
 
-forest.meta(outs, 
+forest(outs, 
             rightcols = c("effect", "ci","w.fixed"),
             # leftcols='studlab',
             comb.random=F, fontsize=10,
@@ -88,7 +170,7 @@ forest.meta(outs,
 
 ```{r funnel_plot, fig.height=8, fig.width=8}
 for(ss in 'Primary_endpoint'){
-  meta_vals = readxl::read_excel('Data/COPCOV_Meta_Analysis_v2.xlsx',
+  meta_vals = readxl::read_excel(fname,
                                  sheet = ss,na = 'NA')
   
   if(ss %in% my_sheets[c(1,3)]) meta_vals = meta_vals[meta_vals$Study !='Grau-Pujol 2021',]
@@ -110,7 +192,7 @@ for(ss in 'Primary_endpoint'){
     mygreys = c(adjustcolor('darkgrey'),
                 adjustcolor('grey',),
                 adjustcolor('lightgrey',.4))
-    cc <- funnel.meta(outs, comb.fixed = TRUE,
+    cc <- meta::funnel(outs, comb.fixed = TRUE,
                       level = 0.95, studlab=T,
                       cex.studlab = .7,
                       pos.studlab = c(1,4,4,2,3,#4,
